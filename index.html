@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Flat contact</title>
+<style>
+  :root { --bg: #F1F4F7; --surface: #fff; --ink: #15202B; --muted: #5A6774; --line: #DCE2E8; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0E141A; --surface: #172029; --ink: #E5EBF0; --muted: #94A2AF; --line: #2C3945; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; min-height: 100dvh; place-items: center; padding: 16px; }
+  main { width: 100%; max-width: 420px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; display: grid; gap: 12px; }
+  h1 { margin: 0; font-size: 20px; line-height: 1.25; overflow-wrap: anywhere; }
+  p { margin: 0; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+  .big { font: 500 clamp(24px, 8vw, 30px) ui-monospace, Menlo, monospace; text-align: center; padding: 6px 0; user-select: all; -webkit-user-select: all; }
+  a.btn, button.btn { display: flex; align-items: center; justify-content: center; min-height: 48px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; padding: 8px 12px; }
+  .primary { background: var(--ink) !important; border-color: var(--ink) !important; color: var(--bg) !important; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="name">Flat contact</h1>
+  <p id="label"></p>
+  <div class="big" id="num" hidden></div>
+  <a class="btn primary" id="call" hidden>Call</a>
+  <button class="btn" id="vcf" type="button" hidden>Add to contacts</button>
+  <button class="btn" id="copy" type="button" hidden>Copy number</button>
+  <a class="btn primary" id="ics" hidden>Add viewing to calendar (.ics)</a>
+  <a class="btn" id="mail" hidden>Email the invite to guests</a>
+  <a class="btn" id="ad" target="_blank" rel="noopener" hidden>Open the ad</a>
+  <p id="hint"></p>
+</main>
+<script>
+// Everything shown here comes from the part of the link after "#", which browsers never send to the server.
+// Contact: { p: 9-digit phone, n: name, l: label, u: ad url, a: address }
+// Viewing: { ev: { u: uid, s: start UTC stamp, e: end UTC stamp, t: title, l: location, d: description, g: [guest emails], f: filename } }
+const $ = id => document.getElementById(id);
+function read() {
+  try { const h = location.hash.slice(1).replace(/-/g, "+").replace(/_/g, "/"); return JSON.parse(decodeURIComponent(escape(atob(h)))); } catch (e) { return null; }
+}
+const esc = s => String(s || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/([,;])/g, "\\$1");
+function fileUrl(text, type) { return URL.createObjectURL(new Blob([text], { type })); }
+function save(text, type, name) { const a = document.createElement("a"); a.href = fileUrl(text, type); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+const o = read();
+if (!o) $("hint").textContent = "This link is incomplete. Open it again from the flat tracker.";
+else {
+  const dg = String(o.p || "").replace(/\D/g, "");
+  if (dg) {
+    const e164 = "+48" + dg, pretty = "+48 " + dg.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3");
+    const name = o.n || "Flat contact", full = [name, o.l].filter(Boolean).join(" · ");
+    document.title = "Call " + name;
+    $("name").textContent = name; $("label").textContent = [o.l, o.a].filter(Boolean).join(" · ");
+    $("num").textContent = pretty; $("num").hidden = false;
+    $("call").href = "tel:" + e164; $("call").textContent = "Call " + pretty; $("call").hidden = false;
+    $("vcf").hidden = false;
+    $("vcf").addEventListener("click", () => {
+      const v = ["BEGIN:VCARD", "VERSION:3.0", "N:" + esc(full) + ";;;;", "FN:" + esc(full), "TEL;TYPE=CELL:" + e164, o.a ? "ADR;TYPE=HOME:;;" + esc(o.a) + ";Warszawa;;;Poland" : "", o.u ? "URL:" + o.u : "", "NOTE:" + esc("Flat hunt" + (o.l ? " · " + o.l : "")), "END:VCARD"].filter(Boolean).join("\r\n");
+      save(v, "text/vcard", "flat-" + dg + ".vcf");
+      $("hint").textContent = "Contact file saved. Open it to add the contact.";
+    });
+    $("copy").hidden = false;
+    $("copy").addEventListener("click", async () => { try { await navigator.clipboard.writeText(e164); $("hint").textContent = "Number copied."; } catch (e) { $("hint").textContent = "Couldn’t copy. Press and hold the number instead."; } });
+    if (o.u) { $("ad").href = o.u; $("ad").hidden = false; }
+  }
+  if (o.ev) {
+    const v = o.ev, stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//flat-hunt//EN", "METHOD:PUBLISH", "BEGIN:VEVENT", "UID:" + esc(v.u) + "@flat-hunt", "DTSTAMP:" + stamp, "DTSTART:" + v.s, "DTEND:" + v.e,
+      "SUMMARY:" + esc(v.t), "LOCATION:" + esc(v.l), "DESCRIPTION:" + esc(v.d), ...(v.g || []).map(g => "ATTENDEE;RSVP=TRUE:mailto:" + g), "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+    if (!dg) { $("name").textContent = v.t || "Viewing"; $("label").textContent = v.w || ""; document.title = v.t || "Viewing"; }
+    const a = $("ics"); a.href = fileUrl(ics, "text/calendar"); a.download = v.f || "viewing.ics"; a.hidden = false;
+    if (dg) a.classList.remove("primary");
+    if ((v.g || []).length) {
+      const body = [v.t, v.w || "", "Location: " + (v.l || ""), "", v.d || ""].join("\n");
+      const m = $("mail"); m.href = "mailto:" + v.g.map(encodeURIComponent).join(",") + "?subject=" + encodeURIComponent(v.t + (v.w ? " · " + v.w : "")) + "&body=" + encodeURIComponent(body); m.hidden = false;
+    }
+    $("hint").textContent = "Open the calendar file to add the viewing. Email the invite opens your mail app with the guests, subject and text filled in; you press Send.";
+  }
+}
+// The tracker can ask for one action to start straight away. Browsers may still want a tap, so the buttons stay.
+if (o && o.do) setTimeout(() => {
+  try {
+    if (o.do === "call" && !$("call").hidden) location.href = $("call").href;
+    else if (o.do === "vcf" && !$("vcf").hidden) $("vcf").click();
+    else if (o.do === "ics" && !$("ics").hidden) $("ics").click();
+    else if (o.do === "mail" && !$("mail").hidden) location.href = $("mail").href;
+  } catch (e) {}
+}, 300);
+</script>
+</body>
+</html>
