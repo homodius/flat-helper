@@ -42,6 +42,16 @@ function read() {
   try { const h = location.hash.slice(1).replace(/-/g, "+").replace(/_/g, "/"); return JSON.parse(decodeURIComponent(escape(atob(h)))); } catch (e) { return null; }
 }
 const esc = s => String(s || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/([,;])/g, "\\$1");
+// RFC 6350 3.2 / RFC 2425: fold content lines longer than 75 octets (UTF-8), never splitting a character.
+function fold(line) {
+  const out = [], enc = new TextEncoder(); let cur = "", n = 0;
+  for (const ch of line) {
+    const b = enc.encode(ch).length;
+    if (n + b > 75) { out.push(cur); cur = " "; n = 1; }
+    cur += ch; n += b;
+  }
+  out.push(cur); return out.join("\r\n");
+}
 function fileUrl(text, type) { return URL.createObjectURL(new Blob([text], { type })); }
 function save(text, type, name) { const a = document.createElement("a"); a.href = fileUrl(text, type); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
 const o = read();
@@ -50,14 +60,17 @@ else {
   const dg = String(o.p || "").replace(/\D/g, "");
   if (dg) {
     const e164 = "+48" + dg, pretty = "+48 " + dg.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3");
-    const name = o.n || "Flat contact", full = [name, o.l].filter(Boolean).join(" · ");
+    const name = o.n || "Flat contact";
     document.title = "Call " + name;
     $("name").textContent = name; $("label").textContent = [o.l, o.a].filter(Boolean).join(" · ");
     $("num").textContent = pretty; $("num").hidden = false;
     $("call").href = "tel:" + e164; $("call").textContent = "Call " + pretty; $("call").hidden = false;
     $("vcf").hidden = false;
     $("vcf").addEventListener("click", () => {
-      const v = ["BEGIN:VCARD", "VERSION:3.0", "N:" + esc(full) + ";;;;", "FN:" + esc(full), "TEL;TYPE=CELL:" + e164, o.a ? "ADR;TYPE=HOME:;;" + esc(o.a) + ";Warszawa;;;Poland" : "", o.u ? "URL:" + o.u : "", "NOTE:" + esc("Flat hunt" + (o.l ? " · " + o.l : "")), "END:VCARD"].filter(Boolean).join("\r\n");
+      const parts = String(o.n || name).trim().split(/\s+/), family = parts.length > 1 ? parts.pop() : "", given = parts.join(" ");
+      const v = ["BEGIN:VCARD", "VERSION:3.0", "N:" + esc(family) + ";" + esc(given) + ";;;", "FN:" + esc(name + (o.l ? " (" + o.l + ")" : "")), "TEL;TYPE=CELL:" + e164,
+        o.a ? "ADR;TYPE=WORK:;;" + esc(o.a) + ";Warszawa;;;Poland" : "", o.u ? "URL:" + o.u : "", "NOTE:" + esc(["Flat hunt", o.l, o.a, o.u].filter(Boolean).join(" · ")), "CATEGORIES:Flat hunt", "END:VCARD"]
+        .filter(Boolean).map(fold).join("\r\n") + "\r\n";
       save(v, "text/vcard", "flat-" + dg + ".vcf");
       $("hint").textContent = "Contact file saved. Open it to add the contact.";
     });
